@@ -1,7 +1,11 @@
+use std::io::BufReader;
 use std::io::{self, BufRead, Write};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::thread::ScopedJoinHandle;
 
 pub struct DiffAnnotator {
+    inner: Option<Vec<String>>,
     commits: Vec<String>,
     file: String,
     start: u32,
@@ -12,8 +16,9 @@ pub struct DiffAnnotator {
 impl DiffAnnotator {
     const ABBREV: usize = 6;
 
-    pub fn new() -> Self {
+    pub fn new(inner: Option<Vec<String>>) -> Self {
         DiffAnnotator {
+            inner,
             commits: Vec::new(),
             file: String::new(),
             start: 0,
@@ -89,11 +94,56 @@ impl DiffAnnotator {
         }
     }
 
-    pub fn annotate_diff<R: BufRead, W: Write>(
+    fn wrapping_diff<R: BufRead, W: Write + Sync + Send>(
         &mut self,
         reader: R,
         mut writer: W,
     ) -> io::Result<()> {
+        if let Some(inner) = &self.inner {
+            let cmd = Command::new(&inner[0])
+                .args(&inner[1..])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .map_err(|e| io::Error::new(e.kind(), format!("Inner cmd: {}", inner[0])))?;
+
+            let pfx_write: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+            let pfx_read = pfx_write.clone();
+
+            let stdout = BufReader::new(cmd.stdout.unwrap());
+            let mut stdin = cmd.stdin.unwrap();
+
+            std::thread::scope(|s| {
+                let t: ScopedJoinHandle<io::Result<()>> = s.spawn(move || {
+                    for line in stdout.lines() {
+                        if let Some(pfx) = pfx_read.lock().unwrap().remove(0) {
+                            write!(writer, "{}", pfx)?;
+                        }
+                        writeln!(writer, "{}", line?)?;
+                    }
+                    Ok(())
+                });
+                for line in reader.lines() {
+                    let line = line?;
+                    writeln!(stdin, "{}", line)?;
+                    pfx_write.lock().unwrap().push(self.process_line(&line)?);
+                }
+                stdin.flush()?;
+                drop(stdin);
+                t.join().unwrap()
+            })?;
+        }
+        return Ok(());
+    }
+
+    pub fn annotate_diff<R: BufRead, W: Write + Sync + Send>(
+        &mut self,
+        reader: R,
+        mut writer: W,
+    ) -> io::Result<()> {
+        if self.inner.is_some() {
+            return self.wrapping_diff(reader, writer);
+        }
         for line in reader.lines() {
             let line = line?;
             if let Some(pfx) = self.process_line(&line)? {
