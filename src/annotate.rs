@@ -97,13 +97,17 @@ impl DiffAnnotator {
         } else if line.starts_with(' ') || line.starts_with('-') {
             if let Some(commit) = self.lookup_commit() {
                 self.offset += 1;
-                Ok(Some(format!("{} ", commit)))
+                if commit.starts_with('^') || commit.chars().all(|c| c == '0') {
+                    Ok(Some(format!("{} ", "·".repeat(self.maxlen))))
+                } else {
+                    Ok(Some(format!("{} ", commit)))
+                }
             } else {
                 self.offset += 1;
-                Ok(Some(format!("{:0<width$} ", "", width = self.maxlen)))
+                Ok(Some(format!("{} ", "?".repeat(self.maxlen))))
             }
         } else if line.starts_with('+') {
-            Ok(Some(format!("{:0<width$} ", "", width = self.maxlen)))
+            Ok(Some(format!("{} ", "+".repeat(self.maxlen))))
         } else {
             Ok(None)
         }
