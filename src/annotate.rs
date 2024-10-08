@@ -6,6 +6,7 @@ use std::thread::ScopedJoinHandle;
 
 pub struct DiffAnnotator {
     inner: Option<Vec<String>>,
+    rev: String,
     commits: Vec<String>,
     file: String,
     start: u32,
@@ -16,15 +17,29 @@ pub struct DiffAnnotator {
 impl DiffAnnotator {
     const ABBREV: usize = 6;
 
-    pub fn new(inner: Option<Vec<String>>) -> Self {
+    pub fn new(inner: Option<Vec<String>>, back_to: Option<String>) -> Self {
         DiffAnnotator {
             inner,
+            rev: Self::make_blame_rev(back_to),
             commits: Vec::new(),
             file: String::new(),
             start: 0,
             offset: 0,
             maxlen: 0,
         }
+    }
+
+    fn make_blame_rev(back_to: Option<String>) -> String {
+        if let Some(back_to) = back_to {
+            let output = Command::new("git")
+                .arg("merge-base")
+                .arg("HEAD")
+                .arg(&back_to)
+                .output()
+                .expect(format!("git merge-base for {back_to} failed").as_str());
+            return format!("{}..", String::from_utf8_lossy(&output.stdout).trim());
+        }
+        "HEAD".to_string()
     }
 
     fn parse_hunk(&mut self, line: &str) -> u32 {
@@ -40,7 +55,7 @@ impl DiffAnnotator {
         let end = self.parse_hunk(header);
         let output = Command::new("git")
             .arg("blame")
-            .arg("HEAD")
+            .arg(&self.rev)
             .arg(format!("--abbrev={}", Self::ABBREV - 1))
             .arg("-L")
             .arg(&format!("{},{}", self.start, end))
