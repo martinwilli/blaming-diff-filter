@@ -29,8 +29,21 @@ impl DiffAnnotator {
         }
     }
 
+    fn rev_parse(rev: &str) -> String {
+        let output = Command::new("git")
+            .arg("rev-parse")
+            .arg(rev)
+            .output()
+            .expect(format!("git rev-parse for {rev} failed").as_str());
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+
     fn make_blame_rev(back_to: Option<String>) -> String {
         if let Some(back_to) = back_to {
+            if Self::rev_parse(&back_to) == Self::rev_parse("HEAD") {
+                // ignore when currently on --back-to branch
+                return "HEAD".to_string();
+            }
             let output = Command::new("git")
                 .arg("merge-base")
                 .arg("HEAD")
