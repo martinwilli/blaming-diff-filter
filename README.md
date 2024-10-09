@@ -35,7 +35,7 @@ projects.
 
 Example `git-config`:
 
-```
+```ini
 [alias]
     diff-blame = !git diff --color | blaming-diff-filter -- delta --color-only
 [interactive]
