@@ -165,7 +165,7 @@ impl DiffAnnotator {
                 t.join().unwrap()
             })?;
         }
-        return Ok(());
+        Ok(())
     }
 
     pub fn annotate_diff<R: BufRead, W: Write + Sync + Send>(
