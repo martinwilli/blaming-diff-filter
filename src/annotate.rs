@@ -186,3 +186,274 @@ impl DiffAnnotator {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+    const PATCH: &str = r"diff --git a/tests/bar.txt b/tests/bar.txt
+index 6d0a9487a999..5aa46cc774fb 10064
+--- a/tests/bar.txt
++++ b/tests/bar.txt
+@@ -1,10 +1,10 @@
+-bar
++barbara
+ 0.5
+ 1
+ 2
+ 3
+ foobar
+ bar ba baz
+-a
+-b
++A
++B
+ C
+diff --git a/tests/foo.txt b/tests/foo.txt
+index 06259808ba40..482e77c74da8 100644
+--- a/tests/foo.txt
++++ b/tests/foo.txt
+@@ -1,5 +1,5 @@
+ foo
+-bar
++baz
+ a
+ b
+ c
+@@ -7,7 +7,7 @@ d
+ +
+ -
+ +++
+-extra
++wtextra
+ bla
+ ---
+ @@ foo
+@@ -17,7 +17,7 @@ bar
+ 3
+ 4
+ 5
+-6
++5z
+ 6a
+ 7
+ 8
+@@ -25,4 +25,3 @@ bar
+ 10
+ 11
+ 12
+-13
+";
+
+    #[test]
+    fn test_parse_hunk() {
+        let mut annotator = DiffAnnotator::new(None, None);
+        let line = "@@ -36,7 +36,7 @@";
+        let end = annotator.parse_hunk(line);
+        assert_eq!(annotator.start, 36);
+        assert_eq!(end, 43);
+    }
+
+    #[test]
+    fn test_annotate_diff() {
+        let mut annotator = DiffAnnotator::new(None, None);
+
+        let reader = Cursor::new(PATCH);
+        let mut writer = Vec::new();
+        let result = annotator.annotate_diff(reader, &mut writer);
+        assert!(result.is_ok());
+        assert_eq!(
+            String::from_utf8(writer).unwrap(),
+            r"diff --git a/tests/bar.txt b/tests/bar.txt
+index 6d0a9487a999..5aa46cc774fb 10064
+--- a/tests/bar.txt
++++ b/tests/bar.txt
+@@ -1,10 +1,10 @@
+b40c1d -bar
+++++++ +barbara
+6ec7db  0.5
+b40c1d  1
+b40c1d  2
+b40c1d  3
+6ec7db  foobar
+6ec7db  bar ba baz
+b40c1d -a
+b40c1d -b
+++++++ +A
+++++++ +B
+6ec7db  C
+diff --git a/tests/foo.txt b/tests/foo.txt
+index 06259808ba40..482e77c74da8 100644
+--- a/tests/foo.txt
++++ b/tests/foo.txt
+@@ -1,5 +1,5 @@
+b40c1d  foo
+b40c1d -bar
+++++++ +baz
+b40c1d  a
+b40c1d  b
+b40c1d  c
+@@ -7,7 +7,7 @@ d
+b40c1d  +
+b40c1d  -
+b40c1d  +++
+b40c1d -extra
+++++++ +wtextra
+b40c1d  bla
+b40c1d  ---
+b40c1d  @@ foo
+@@ -17,7 +17,7 @@ bar
+b40c1d  3
+b40c1d  4
+b40c1d  5
+b40c1d -6
+++++++ +5z
+6ec7db  6a
+b40c1d  7
+b40c1d  8
+@@ -25,4 +25,3 @@ bar
+b40c1d  10
+b40c1d  11
+b40c1d  12
+6ec7db -13
+"
+        );
+    }
+
+    #[test]
+    fn test_annotate_inner() {
+        let inner = vec![
+            "tr".to_string(),
+            "[:lower:]".to_string(),
+            "[:upper:]".to_string(),
+        ];
+        let mut annotator = DiffAnnotator::new(Some(inner), None);
+
+        let reader = Cursor::new(PATCH);
+        let mut writer = Vec::new();
+        let result = annotator.annotate_diff(reader, &mut writer);
+        assert!(result.is_ok());
+        assert_eq!(
+            String::from_utf8(writer).unwrap(),
+            r"DIFF --GIT A/TESTS/BAR.TXT B/TESTS/BAR.TXT
+INDEX 6D0A9487A999..5AA46CC774FB 10064
+--- A/TESTS/BAR.TXT
++++ B/TESTS/BAR.TXT
+@@ -1,10 +1,10 @@
+b40c1d -BAR
+++++++ +BARBARA
+6ec7db  0.5
+b40c1d  1
+b40c1d  2
+b40c1d  3
+6ec7db  FOOBAR
+6ec7db  BAR BA BAZ
+b40c1d -A
+b40c1d -B
+++++++ +A
+++++++ +B
+6ec7db  C
+DIFF --GIT A/TESTS/FOO.TXT B/TESTS/FOO.TXT
+INDEX 06259808BA40..482E77C74DA8 100644
+--- A/TESTS/FOO.TXT
++++ B/TESTS/FOO.TXT
+@@ -1,5 +1,5 @@
+b40c1d  FOO
+b40c1d -BAR
+++++++ +BAZ
+b40c1d  A
+b40c1d  B
+b40c1d  C
+@@ -7,7 +7,7 @@ D
+b40c1d  +
+b40c1d  -
+b40c1d  +++
+b40c1d -EXTRA
+++++++ +WTEXTRA
+b40c1d  BLA
+b40c1d  ---
+b40c1d  @@ FOO
+@@ -17,7 +17,7 @@ BAR
+b40c1d  3
+b40c1d  4
+b40c1d  5
+b40c1d -6
+++++++ +5Z
+6ec7db  6A
+b40c1d  7
+b40c1d  8
+@@ -25,4 +25,3 @@ BAR
+b40c1d  10
+b40c1d  11
+b40c1d  12
+6ec7db -13
+"
+        );
+    }
+
+    #[test]
+    fn test_annotate_backto() {
+        let mut annotator = DiffAnnotator::new(None, Some("b40c1dbc28".to_string()));
+
+        let reader = Cursor::new(PATCH);
+        let mut writer = Vec::new();
+        let result = annotator.annotate_diff(reader, &mut writer);
+        assert!(result.is_ok());
+        assert_eq!(
+            String::from_utf8(writer).unwrap(),
+            r"diff --git a/tests/bar.txt b/tests/bar.txt
+index 6d0a9487a999..5aa46cc774fb 10064
+--- a/tests/bar.txt
++++ b/tests/bar.txt
+@@ -1,10 +1,10 @@
+······ -bar
+++++++ +barbara
+6ec7db  0.5
+······  1
+······  2
+······  3
+6ec7db  foobar
+6ec7db  bar ba baz
+······ -a
+······ -b
+++++++ +A
+++++++ +B
+6ec7db  C
+diff --git a/tests/foo.txt b/tests/foo.txt
+index 06259808ba40..482e77c74da8 100644
+--- a/tests/foo.txt
++++ b/tests/foo.txt
+@@ -1,5 +1,5 @@
+······  foo
+······ -bar
+++++++ +baz
+······  a
+······  b
+······  c
+@@ -7,7 +7,7 @@ d
+······  +
+······  -
+······  +++
+······ -extra
+++++++ +wtextra
+······  bla
+······  ---
+······  @@ foo
+@@ -17,7 +17,7 @@ bar
+······  3
+······  4
+······  5
+······ -6
+++++++ +5z
+6ec7db  6a
+······  7
+······  8
+@@ -25,4 +25,3 @@ bar
+······  10
+······  11
+······  12
+6ec7db -13
+"
+        );
+    }
+}
