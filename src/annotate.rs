@@ -4,6 +4,11 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread::ScopedJoinHandle;
 
+/// Annotate each line of a diff with the commit-id that last touched it.
+///
+/// The `DiffAnnotator` is used to annotate each line of a diff with the commit-id that last
+/// touched it. It can use an inner diff filter to process the diff output before annotating it.
+/// The `back_to` option can be used to blame up to a common ancestor.
 pub struct DiffAnnotator {
     inner: Option<Vec<String>>,
     rev: String,
@@ -17,6 +22,10 @@ pub struct DiffAnnotator {
 impl DiffAnnotator {
     const ABBREV: usize = 6;
 
+    /// Create a new `DiffAnnotator`.
+    ///
+    /// * `inner` - An optional inner diff filter to process the diff output before annotating it.
+    /// * `back_to` - An optional commit-id to blame up to a common ancestor.
     pub fn new(inner: Option<Vec<String>>, back_to: Option<String>) -> io::Result<Self> {
         Ok(DiffAnnotator {
             inner,
@@ -181,6 +190,10 @@ impl DiffAnnotator {
         Ok(())
     }
 
+    /// Annotate a diff with the commit-id that last touched each line.
+    ///
+    /// * `reader` - A reader for the diff to annotate.
+    /// * `writer` - A writer for the annotated diff.
     pub fn annotate_diff<R: BufRead, W: Write + Sync + Send>(
         &mut self,
         reader: R,
