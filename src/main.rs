@@ -15,6 +15,6 @@ struct Args {
 
 fn main() -> io::Result<()> {
     let args = Args::parse();
-    let mut annotator = DiffAnnotator::new(args.inner, args.back_to);
+    let mut annotator = DiffAnnotator::new(args.inner, args.back_to)?;
     annotator.annotate_diff(io::stdin().lock(), io::stdout())
 }

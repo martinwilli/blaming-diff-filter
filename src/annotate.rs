@@ -17,42 +17,51 @@ pub struct DiffAnnotator {
 impl DiffAnnotator {
     const ABBREV: usize = 6;
 
-    pub fn new(inner: Option<Vec<String>>, back_to: Option<String>) -> Self {
-        DiffAnnotator {
+    pub fn new(inner: Option<Vec<String>>, back_to: Option<String>) -> io::Result<Self> {
+        Ok(DiffAnnotator {
             inner,
-            rev: Self::make_blame_rev(back_to),
+            rev: Self::make_blame_rev(back_to)?,
             commits: Vec::new(),
             file: None,
             start: 0,
             offset: 0,
             maxlen: 0,
-        }
+        })
     }
 
-    fn rev_parse(rev: &str) -> String {
-        let output = Command::new("git")
-            .arg("rev-parse")
-            .arg(rev)
+    fn check_output(cmd: &mut Command) -> io::Result<String> {
+        let desc = format!("{cmd:?}");
+        let output = cmd
             .output()
-            .expect(format!("git rev-parse for {rev} failed").as_str());
-        String::from_utf8_lossy(&output.stdout).trim().to_string()
+            .map_err(|e| io::Error::new(e.kind(), desc.clone()))?;
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("{desc}: {}", String::from_utf8_lossy(&output.stderr)),
+            ))
+        }
     }
 
-    fn make_blame_rev(back_to: Option<String>) -> String {
+    fn rev_parse(rev: &str) -> io::Result<String> {
+        Self::check_output(Command::new("git").arg("rev-parse").arg(rev))
+    }
+
+    fn make_blame_rev(back_to: Option<String>) -> io::Result<String> {
         if let Some(back_to) = back_to {
-            if Self::rev_parse(&back_to) == Self::rev_parse("HEAD") {
+            if Self::rev_parse(&back_to)? == Self::rev_parse("HEAD")? {
                 // ignore when currently on --back-to branch
-                return "HEAD".to_string();
+                return Ok("HEAD".to_string());
             }
-            let output = Command::new("git")
-                .arg("merge-base")
-                .arg("HEAD")
-                .arg(&back_to)
-                .output()
-                .expect(format!("git merge-base for {back_to} failed").as_str());
-            return format!("{}..", String::from_utf8_lossy(&output.stdout).trim());
+            return Ok(Self::check_output(
+                Command::new("git")
+                    .arg("merge-base")
+                    .arg("HEAD")
+                    .arg(&back_to),
+            )? + "..");
         }
-        "HEAD".to_string()
+        Ok("HEAD".to_string())
     }
 
     fn parse_hunk(&mut self, line: &str) -> u32 {
@@ -66,19 +75,18 @@ impl DiffAnnotator {
 
     fn blame_hunk(&mut self, header: &str) -> io::Result<()> {
         let end = self.parse_hunk(header);
-        let output = Command::new("git")
-            .arg("blame")
-            .arg(&self.rev)
-            .arg(format!("--abbrev={}", Self::ABBREV - 1))
-            .arg("-L")
-            .arg(&format!("{},{}", self.start, end))
-            .arg(self.file.as_deref().unwrap())
-            .output()?;
-        let lines = String::from_utf8_lossy(&output.stdout);
-        self.commits = lines
-            .lines()
-            .map(|line| line.split_whitespace().next().unwrap().to_string())
-            .collect();
+        self.commits = Self::check_output(
+            Command::new("git")
+                .arg("blame")
+                .arg(&self.rev)
+                .arg(format!("--abbrev={}", Self::ABBREV - 1))
+                .arg("-L")
+                .arg(&format!("{},{}", self.start, end))
+                .arg(self.file.as_deref().unwrap()),
+        )?
+        .lines()
+        .map(|line| line.split_whitespace().next().unwrap().to_string())
+        .collect();
         self.maxlen = self.commits.iter().fold(Self::ABBREV, |acc, commit| {
             if commit.len() > acc {
                 commit.len()
@@ -252,7 +260,7 @@ index 06259808ba40..482e77c74da8 100644
 
     #[test]
     fn test_parse_hunk() {
-        let mut annotator = DiffAnnotator::new(None, None);
+        let mut annotator = DiffAnnotator::new(None, None).unwrap();
         let line = "@@ -36,7 +36,7 @@";
         let end = annotator.parse_hunk(line);
         assert_eq!(annotator.start, 36);
@@ -261,7 +269,7 @@ index 06259808ba40..482e77c74da8 100644
 
     #[test]
     fn test_annotate_diff() {
-        let mut annotator = DiffAnnotator::new(None, None);
+        let mut annotator = DiffAnnotator::new(None, None).unwrap();
 
         let reader = Cursor::new(PATCH);
         let mut writer = Vec::new();
@@ -332,7 +340,7 @@ b40c1d  12
             "[:lower:]".to_string(),
             "[:upper:]".to_string(),
         ];
-        let mut annotator = DiffAnnotator::new(Some(inner), None);
+        let mut annotator = DiffAnnotator::new(Some(inner), None).unwrap();
 
         let reader = Cursor::new(PATCH);
         let mut writer = Vec::new();
@@ -398,7 +406,7 @@ b40c1d  12
 
     #[test]
     fn test_annotate_backto() {
-        let mut annotator = DiffAnnotator::new(None, Some("b40c1dbc28".to_string()));
+        let mut annotator = DiffAnnotator::new(None, Some("b40c1dbc28".to_string())).unwrap();
 
         let reader = Cursor::new(PATCH);
         let mut writer = Vec::new();
