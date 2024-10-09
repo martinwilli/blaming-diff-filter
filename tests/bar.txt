@@ -1,9 +1,10 @@
 bar
+0.5
 1
 2
 3
-foo
-bar baz
+foobar
+bar ba baz
 a
 b
-c
+C
