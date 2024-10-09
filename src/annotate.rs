@@ -8,7 +8,7 @@ pub struct DiffAnnotator {
     inner: Option<Vec<String>>,
     rev: String,
     commits: Vec<String>,
-    file: String,
+    file: Option<String>,
     start: u32,
     offset: u32,
     maxlen: usize,
@@ -22,7 +22,7 @@ impl DiffAnnotator {
             inner,
             rev: Self::make_blame_rev(back_to),
             commits: Vec::new(),
-            file: String::new(),
+            file: None,
             start: 0,
             offset: 0,
             maxlen: 0,
@@ -72,7 +72,7 @@ impl DiffAnnotator {
             .arg(format!("--abbrev={}", Self::ABBREV - 1))
             .arg("-L")
             .arg(&format!("{},{}", self.start, end))
-            .arg(&self.file)
+            .arg(self.file.as_deref().unwrap())
             .output()?;
         let lines = String::from_utf8_lossy(&output.stdout);
         self.commits = lines
@@ -98,14 +98,19 @@ impl DiffAnnotator {
     }
 
     fn process_line(&mut self, line: &str) -> io::Result<Option<String>> {
-        let line = strip_ansi_escapes::strip_str(&line);
-        if line.starts_with("--- ") {
-            self.file = line.split_whitespace().last().unwrap()[2..].to_string();
+        let line = strip_ansi_escapes::strip_str(line);
+        if let Some(path) = line.strip_prefix("--- ") {
+            // for new files this can be /dev/null, so ignore anything not starting with "a/"
+            self.file = path.strip_prefix("a/").map(str::to_string);
             Ok(None)
         } else if line.starts_with("+++ ") {
             Ok(None)
         } else if line.starts_with("@@ ") {
-            self.blame_hunk(&line)?;
+            if self.file.is_some() {
+                self.blame_hunk(&line)?;
+            } else {
+                self.commits.clear();
+            }
             Ok(None)
         } else if line.starts_with(' ') || line.starts_with('-') {
             if let Some(commit) = self.lookup_commit() {
