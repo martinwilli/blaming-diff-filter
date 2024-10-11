@@ -1,7 +1,7 @@
 use std::io::BufReader;
 use std::io::{self, BufRead, Write};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc;
 use std::thread::ScopedJoinHandle;
 
 /// Annotate each line of a diff with the commit-id that last touched it.
@@ -161,17 +161,17 @@ impl DiffAnnotator {
                 .spawn()
                 .map_err(|e| io::Error::new(e.kind(), format!("Inner cmd: {}", inner[0])))?;
 
-            let pfx_write: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
-            let pfx_read = pfx_write.clone();
-
+            let (tx, rx) = mpsc::channel::<Option<String>>();
             let stdout = BufReader::new(cmd.stdout.unwrap());
             let mut stdin = cmd.stdin.unwrap();
 
             std::thread::scope(|s| {
                 let t: ScopedJoinHandle<io::Result<()>> = s.spawn(move || {
                     for line in stdout.lines() {
-                        if let Some(pfx) = pfx_read.lock().unwrap().remove(0) {
-                            write!(writer, "{}", pfx)?;
+                        match rx.recv() {
+                            Ok(Some(pfx)) => write!(writer, "{}", pfx)?,
+                            Ok(None) => (),
+                            Err(e) => return Err(io::Error::new(io::ErrorKind::Other, e)),
                         }
                         writeln!(writer, "{}", line?)?;
                     }
@@ -179,10 +179,10 @@ impl DiffAnnotator {
                 });
                 for line in reader.lines() {
                     let line = line?;
+                    tx.send(self.process_line(&line)?)
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
                     writeln!(stdin, "{}", line)?;
-                    pfx_write.lock().unwrap().push(self.process_line(&line)?);
                 }
-                stdin.flush()?;
                 drop(stdin);
                 t.join().unwrap()
             })?;
