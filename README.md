@@ -31,6 +31,16 @@ in the topic branch are annotated as `······`, increasing visibility of us
 commit-IDs significantly. As an extra, this may speed up blaming on large
 projects.
 
+## Listing candidate commits ##
+
+Annotated commits can be printed with additional information to `stderr` using
+a custom git `format-string`. This allows giving some context to the user
+during `git add -p`, so the candidate commits are known.
+
+The `-f`/`--format` option takes a git `format-string` as given to the
+`git-show --format=` option. It may take any format specifiers, including
+colors.
+
 ## Configuration ##
 
 Example `git-config`:
@@ -39,7 +49,7 @@ Example `git-config`:
 [alias]
     diff-blame = !git diff --color | blaming-diff-filter -- delta --color-only
 [interactive]
-    diffFilter = blaming-diff-filter -b master -- delta --color-only
+    diffFilter = blaming-diff-filter -b master -f '%h %s' -- delta --color-only
 ```
 
 To create fixup commits, run `git add -p`, stage hunks for a fixup, then do a

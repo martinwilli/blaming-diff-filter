@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::io::BufReader;
 use std::io::{self, BufRead, Write};
 use std::process::{Command, Stdio};
@@ -12,7 +13,9 @@ use std::thread::ScopedJoinHandle;
 pub struct DiffAnnotator {
     inner: Option<Vec<String>>,
     rev: String,
+    format: Option<String>,
     commits: Vec<String>,
+    candidates: HashSet<String>,
     file: Option<String>,
     start: u32,
     offset: u32,
@@ -26,11 +29,17 @@ impl DiffAnnotator {
     ///
     /// * `inner` - An optional inner diff filter to process the diff output before annotating it.
     /// * `back_to` - An optional commit-id to blame up to a common ancestor.
-    pub fn new(inner: Option<Vec<String>>, back_to: Option<String>) -> io::Result<Self> {
+    pub fn new(
+        inner: Option<Vec<String>>,
+        back_to: Option<String>,
+        format: Option<String>,
+    ) -> io::Result<Self> {
         Ok(DiffAnnotator {
             inner,
             rev: Self::make_blame_rev(back_to)?,
+            format,
             commits: Vec::new(),
+            candidates: HashSet::new(),
             file: None,
             start: 0,
             offset: 0,
@@ -135,6 +144,7 @@ impl DiffAnnotator {
                 if commit.starts_with('^') || commit.chars().all(|c| c == '0') {
                     Ok(Some(format!("{} ", "·".repeat(self.maxlen))))
                 } else {
+                    self.candidates.insert(commit.clone());
                     Ok(Some(format!("{} ", commit)))
                 }
             } else {
@@ -190,24 +200,62 @@ impl DiffAnnotator {
         Ok(())
     }
 
-    /// Annotate a diff with the commit-id that last touched each line.
-    ///
-    /// * `reader` - A reader for the diff to annotate.
-    /// * `writer` - A writer for the annotated diff.
-    pub fn annotate_diff<R: BufRead, W: Write + Sync + Send>(
+    fn simple_diff<R: BufRead, W: Write + Sync + Send>(
         &mut self,
         reader: R,
         mut writer: W,
     ) -> io::Result<()> {
-        if self.inner.is_some() {
-            return self.wrapping_diff(reader, writer);
-        }
         for line in reader.lines() {
             let line = line?;
             if let Some(pfx) = self.process_line(&line)? {
                 write!(writer, "{}", pfx)?;
             }
             writeln!(writer, "{}", line)?;
+        }
+        Ok(())
+    }
+
+    /// Annotate a diff with the commit-id that last touched each line.
+    ///
+    /// * `reader` - A reader for the diff to annotate.
+    /// * `writer` - A writer for the annotated diff.
+    pub fn annotate_diff<R: BufRead, W: Write + Sync + Send, CW: Write>(
+        &mut self,
+        reader: R,
+        writer: W,
+        mut cand_writer: CW,
+    ) -> io::Result<()> {
+        if self.inner.is_some() {
+            self.wrapping_diff(reader, writer)?;
+        } else {
+            self.simple_diff(reader, writer)?;
+        }
+        if let Some(format) = &self.format {
+            let output = Self::check_output(
+                Command::new("git")
+                    .arg("show")
+                    .arg("-s")
+                    .arg("--color")
+                    .arg(format!("--abbrev={}", Self::ABBREV))
+                    .arg(format!("--format=%at {}", format))
+                    .args(&self.candidates),
+            )?;
+            let mut lines: Vec<_> = output.lines().collect();
+            lines.sort_by_key(|line| {
+                line.split_whitespace()
+                    .next()
+                    .unwrap_or("0")
+                    .parse::<u64>()
+                    .unwrap_or(0)
+            });
+            for line in lines {
+                let line = line
+                    .split_whitespace()
+                    .skip(1)
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                writeln!(cand_writer, "{}", line)?;
+            }
         }
         Ok(())
     }
@@ -273,7 +321,7 @@ index 06259808ba40..482e77c74da8 100644
 
     #[test]
     fn test_parse_hunk() {
-        let mut annotator = DiffAnnotator::new(None, None).unwrap();
+        let mut annotator = DiffAnnotator::new(None, None, None).unwrap();
         let line = "@@ -36,7 +36,7 @@";
         let end = annotator.parse_hunk(line);
         assert_eq!(annotator.start, 36);
@@ -282,11 +330,12 @@ index 06259808ba40..482e77c74da8 100644
 
     #[test]
     fn test_annotate_diff() {
-        let mut annotator = DiffAnnotator::new(None, None).unwrap();
+        let mut annotator = DiffAnnotator::new(None, None, None).unwrap();
 
         let reader = Cursor::new(PATCH);
         let mut writer = Vec::new();
-        let result = annotator.annotate_diff(reader, &mut writer);
+        let mut cwriter = Vec::new();
+        let result = annotator.annotate_diff(reader, &mut writer, &mut cwriter);
         assert!(result.is_ok());
         assert_eq!(
             String::from_utf8(writer).unwrap(),
@@ -353,11 +402,13 @@ b40c1d  12
             "[:lower:]".to_string(),
             "[:upper:]".to_string(),
         ];
-        let mut annotator = DiffAnnotator::new(Some(inner), None).unwrap();
+        let format = "%h %s".to_string();
+        let mut annotator = DiffAnnotator::new(Some(inner), None, Some(format)).unwrap();
 
         let reader = Cursor::new(PATCH);
         let mut writer = Vec::new();
-        let result = annotator.annotate_diff(reader, &mut writer);
+        let mut cwriter = Vec::new();
+        let result = annotator.annotate_diff(reader, &mut writer, &mut cwriter);
         assert!(result.is_ok());
         assert_eq!(
             String::from_utf8(writer).unwrap(),
@@ -415,15 +466,22 @@ b40c1d  12
 6ec7db -13
 "
         );
+        assert_eq!(
+            String::from_utf8(cwriter).unwrap(),
+            r"b40c1d tests: Add some test data
+6ec7db tests: Add some changes to test files for blame testing
+"
+        );
     }
 
     #[test]
     fn test_annotate_backto() {
-        let mut annotator = DiffAnnotator::new(None, Some("b40c1dbc28".to_string())).unwrap();
+        let mut annotator = DiffAnnotator::new(None, Some("b40c1dbc28".to_string()), None).unwrap();
 
         let reader = Cursor::new(PATCH);
         let mut writer = Vec::new();
-        let result = annotator.annotate_diff(reader, &mut writer);
+        let mut cwriter = Vec::new();
+        let result = annotator.annotate_diff(reader, &mut writer, &mut cwriter);
         assert!(result.is_ok());
         assert_eq!(
             String::from_utf8(writer).unwrap(),
