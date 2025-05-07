@@ -31,6 +31,12 @@ in the topic branch are annotated as `······`, increasing visibility of us
 commit-IDs significantly. As an extra, this may speed up blaming on large
 projects.
 
+To support different integration branch naming schemes across repositories
+while using a shared git configuration, the `-b` option can be repeated for
+multiple branch name candidates and the first existing branch is used as
+integration branch. `-b master -b main` uses the `master` as integration branch,
+but falls back to `main` if `master` does not exist in the current repository.
+
 ## Listing candidate commits ##
 
 Annotated commits can be printed with additional information to `stderr` using

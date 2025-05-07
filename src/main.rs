@@ -8,7 +8,7 @@ use std::io;
 struct Args {
     /// Blame up to common ancestor.
     #[arg(short, long, value_name = "commitid")]
-    back_to: Option<String>,
+    back_to: Option<Vec<String>>,
     /// Print candidates using git `format-string`.
     #[arg(short, long, value_name = "format-string")]
     format: Option<String>,

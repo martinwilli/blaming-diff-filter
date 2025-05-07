@@ -31,7 +31,7 @@ impl DiffAnnotator {
     /// * `back_to` - An optional commit-id to blame up to a common ancestor.
     pub fn new(
         inner: Option<Vec<String>>,
-        back_to: Option<String>,
+        back_to: Option<Vec<String>>,
         format: Option<String>,
     ) -> io::Result<Self> {
         Ok(DiffAnnotator {
@@ -66,18 +66,22 @@ impl DiffAnnotator {
         Self::check_output(Command::new("git").arg("rev-parse").arg(rev))
     }
 
-    fn make_blame_rev(back_to: Option<String>) -> io::Result<String> {
+    fn make_blame_rev(back_to: Option<Vec<String>>) -> io::Result<String> {
         if let Some(back_to) = back_to {
-            if Self::rev_parse(&back_to)? == Self::rev_parse("HEAD")? {
-                // ignore when currently on --back-to branch
-                return Ok("HEAD".to_string());
+            for branch in back_to {
+                if let Ok(rev) = Self::rev_parse(&branch) {
+                    if rev == Self::rev_parse("HEAD")? {
+                        // ignore when currently on --back-to branch
+                        break;
+                    }
+                    return Ok(Self::check_output(
+                        Command::new("git")
+                            .arg("merge-base")
+                            .arg("HEAD")
+                            .arg(&branch),
+                    )? + "..");
+                }
             }
-            return Ok(Self::check_output(
-                Command::new("git")
-                    .arg("merge-base")
-                    .arg("HEAD")
-                    .arg(&back_to),
-            )? + "..");
         }
         Ok("HEAD".to_string())
     }
@@ -476,7 +480,8 @@ b40c1d  12
 
     #[test]
     fn test_annotate_backto() {
-        let mut annotator = DiffAnnotator::new(None, Some("b40c1dbc28".to_string()), None).unwrap();
+        let backto = Some(vec!["b40c1dbc28".to_string()]);
+        let mut annotator = DiffAnnotator::new(None, backto, None).unwrap();
 
         let reader = Cursor::new(PATCH);
         let mut writer = Vec::new();
