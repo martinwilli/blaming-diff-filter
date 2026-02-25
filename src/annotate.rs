@@ -88,10 +88,14 @@ impl DiffAnnotator {
 
     fn parse_hunk(&mut self, line: &str) -> u32 {
         // @@ -36,7 +36,7 @@
-        let mut parts = line.split_whitespace();
-        let mut old = parts.nth(1).unwrap()[1..].split(',');
-        self.start = old.next().unwrap().parse::<u32>().unwrap();
-        let count = old.next().unwrap().parse::<u32>().unwrap();
+        // @@ -1 +1 @@
+        let old = line.split_whitespace().nth(1).unwrap().trim_start_matches('-');
+        let (start, count) = old
+            .split_once(',')
+            .map(|(start, count)| (start, count.parse::<u32>().unwrap()))
+            .unwrap_or((old, 1));
+
+        self.start = start.parse::<u32>().unwrap();
         self.start + count
     }
 
@@ -330,6 +334,15 @@ index 06259808ba40..482e77c74da8 100644
         let end = annotator.parse_hunk(line);
         assert_eq!(annotator.start, 36);
         assert_eq!(end, 43);
+    }
+
+    #[test]
+    fn test_parse_hunk_compact() {
+        let mut annotator = DiffAnnotator::new(None, None, None).unwrap();
+        let line = "@@ -12 +34 @@";
+        let end = annotator.parse_hunk(line);
+        assert_eq!(annotator.start, 12);
+        assert_eq!(end, 13);
     }
 
     #[test]
