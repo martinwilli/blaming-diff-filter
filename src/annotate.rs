@@ -111,7 +111,7 @@ impl DiffAnnotator {
                 .arg(&self.rev)
                 .arg(format!("--abbrev={}", Self::ABBREV - 1))
                 .arg("-L")
-                .arg(&format!("{},{}", self.start, end))
+                .arg(format!("{},{}", self.start, end))
                 .arg(self.file.as_deref().unwrap()),
         )?
         .lines()
