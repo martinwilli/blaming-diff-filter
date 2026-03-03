@@ -105,18 +105,37 @@ impl DiffAnnotator {
 
     fn blame_hunk(&mut self, header: &str) -> io::Result<()> {
         let end = self.parse_hunk(header);
-        self.commits = Self::check_output(
+        let mut cache = std::collections::HashMap::<String, String>::new();
+        self.commits.clear();
+        for commit in Self::check_output(
             Command::new("git")
                 .arg("blame")
                 .arg(&self.rev)
-                .arg(format!("--abbrev={}", Self::ABBREV - 1))
                 .arg("-L")
                 .arg(format!("{},{}", self.start, end))
                 .arg(self.file.as_deref().unwrap()),
         )?
         .lines()
         .map(|line| line.split_whitespace().next().unwrap().to_string())
-        .collect();
+        {
+            if commit.starts_with('^') || commit.chars().all(|c| c == '0') {
+                self.commits.push("0".repeat(Self::ABBREV));
+            } else {
+                self.commits
+                    .push(if let Some(existing) = cache.get(&commit) {
+                        existing.clone()
+                    } else {
+                        let resolved = Self::check_output(
+                            Command::new("git")
+                                .arg("rev-parse")
+                                .arg(format!("--short={}", Self::ABBREV))
+                                .arg(&commit),
+                        )?;
+                        cache.insert(commit.to_string(), resolved.clone());
+                        resolved
+                    });
+            }
+        }
         self.maxlen = self.commits.iter().fold(Self::ABBREV, |acc, commit| {
             if commit.len() > acc {
                 commit.len()
