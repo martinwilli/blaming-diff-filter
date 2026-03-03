@@ -89,7 +89,11 @@ impl DiffAnnotator {
     fn parse_hunk(&mut self, line: &str) -> u32 {
         // @@ -36,7 +36,7 @@
         // @@ -1 +1 @@
-        let old = line.split_whitespace().nth(1).unwrap().trim_start_matches('-');
+        let old = line
+            .split_whitespace()
+            .nth(1)
+            .unwrap()
+            .trim_start_matches('-');
         let (start, count) = old
             .split_once(',')
             .map(|(start, count)| (start, count.parse::<u32>().unwrap()))
