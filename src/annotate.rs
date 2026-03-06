@@ -47,18 +47,35 @@ impl DiffAnnotator {
         })
     }
 
-    fn check_output(cmd: &mut Command) -> io::Result<String> {
+    fn run_cmd(cmd: &mut Command, stdin: Option<&[u8]>) -> io::Result<Vec<u8>> {
         let desc = format!("{cmd:?}");
-        let output = cmd
-            .output()
-            .map_err(|e| io::Error::new(e.kind(), desc.clone()))?;
-        if output.status.success() {
-            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        let output = if let Some(input) = stdin {
+            let mut child = cmd
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .map_err(|e| io::Error::new(e.kind(), desc.clone()))?;
+            child.stdin.take().unwrap().write_all(input)?;
+            child
+                .wait_with_output()
+                .map_err(|e| io::Error::new(e.kind(), desc.clone()))?
         } else {
-            Err(io::Error::other(
-                format!("{desc}: {}", String::from_utf8_lossy(&output.stderr)),
-            ))
+            cmd.output()
+                .map_err(|e| io::Error::new(e.kind(), desc.clone()))?
+        };
+        if output.status.success() {
+            Ok(output.stdout)
+        } else {
+            Err(io::Error::other(format!(
+                "{desc}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )))
         }
+    }
+
+    fn check_output(cmd: &mut Command) -> io::Result<String> {
+        Self::run_cmd(cmd, None).map(|out| String::from_utf8_lossy(&out).trim().to_string())
     }
 
     fn rev_parse(rev: &str) -> io::Result<String> {
