@@ -60,3 +60,7 @@ Example `git-config`:
 
 To create fixup commits, run `git add -p`, stage hunks for a fixup, then do a
 `git commit --fixup=<commitid>`, optionally followed by an interactive rebase.
+
+## Demo ##
+
+![demo](doc/demo.gif)
