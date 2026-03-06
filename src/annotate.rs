@@ -123,16 +123,25 @@ impl DiffAnnotator {
         let end = self.parse_hunk(header);
         let mut cache = std::collections::HashMap::<String, String>::new();
         self.commits.clear();
-        for commit in Self::check_output(
+        let file = self.file.as_deref().unwrap();
+        let blame = Self::run_cmd(
             Command::new("git")
                 .arg("blame")
+                .arg("--contents")
+                .arg("-")
                 .arg(&self.rev)
                 .arg("-L")
                 .arg(format!("{},{}", self.start, end))
-                .arg(self.file.as_deref().unwrap()),
-        )?
-        .lines()
-        .map(|line| line.split_whitespace().next().unwrap().to_string())
+                .arg("--")
+                .arg(file),
+            Some(&Self::run_cmd(
+                Command::new("git").arg("show").arg(format!(":{file}")),
+                None,
+            )?),
+        )?;
+        for commit in String::from_utf8_lossy(&blame)
+            .lines()
+            .map(|line| line.split_whitespace().next().unwrap().to_string())
         {
             if commit.starts_with('^') || commit.chars().all(|c| c == '0') {
                 self.commits.push("0".repeat(Self::ABBREV));
