@@ -1,5 +1,5 @@
 use blaming_diff_filter::annotate::DiffAnnotator;
-use clap::{command, Parser};
+use clap::{Parser, command};
 use std::io;
 
 /// git diffFilter annotating each line with originating commit-id.

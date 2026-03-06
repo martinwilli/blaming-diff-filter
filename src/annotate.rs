@@ -55,8 +55,7 @@ impl DiffAnnotator {
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
         } else {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
+            Err(io::Error::other(
                 format!("{desc}: {}", String::from_utf8_lossy(&output.stderr)),
             ))
         }
@@ -212,7 +211,7 @@ impl DiffAnnotator {
                         match rx.recv() {
                             Ok(Some(pfx)) => write!(writer, "{}", pfx)?,
                             Ok(None) => (),
-                            Err(e) => return Err(io::Error::new(io::ErrorKind::Other, e)),
+                            Err(e) => return Err(io::Error::other(e)),
                         }
                         writeln!(writer, "{}", line?)?;
                     }
@@ -221,7 +220,7 @@ impl DiffAnnotator {
                 for line in reader.lines() {
                     let line = line?;
                     tx.send(self.process_line(&line)?)
-                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                        .map_err(io::Error::other)?;
                     writeln!(stdin, "{}", line)?;
                 }
                 drop(stdin);
