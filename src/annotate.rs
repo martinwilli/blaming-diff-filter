@@ -121,8 +121,12 @@ impl DiffAnnotator {
 
     fn blame_hunk(&mut self, header: &str) -> io::Result<()> {
         let end = self.parse_hunk(header);
-        let mut cache = std::collections::HashMap::<String, String>::new();
         self.commits.clear();
+        if self.start == 0 {
+            self.offset = self.start;
+            return Ok(());
+        }
+        let mut cache = std::collections::HashMap::<String, String>::new();
         let file = self.file.as_deref().unwrap();
         let blame = Self::run_cmd(
             Command::new("git")
